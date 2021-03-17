@@ -116,6 +116,11 @@ func (r *responseVerificationHeader) setOrigin(m stableMarshaler) {
 
 func (s StableMarshalerWrapper) ReadSignedData(buf []byte) ([]byte, error) {
 	if s.SM != nil {
+		if sz := s.SM.StableSize(); cap(buf) < sz {
+			buf = make([]byte, sz)
+		} else {
+			buf = buf[:sz]
+		}
 		return s.SM.StableMarshal(buf)
 	}
 
@@ -144,6 +149,10 @@ func keySignatureSource(s *refs.Signature) signature.KeySignatureSource {
 }
 
 func SignServiceMessage(key *ecdsa.PrivateKey, msg interface{}) error {
+	return SignServiceMessageBuffer(key, msg, nil)
+}
+
+func SignServiceMessageBuffer(key *ecdsa.PrivateKey, msg interface{}, buf []byte) error {
 	var (
 		body, meta, verifyOrigin stableMarshaler
 		verifyHdr                verificationHeader
@@ -179,20 +188,21 @@ func SignServiceMessage(key *ecdsa.PrivateKey, msg interface{}) error {
 		panic(fmt.Sprintf("unsupported session message %T", v))
 	}
 
+	buf = newBuffer(buf, body, meta, verifyOrigin)
 	if verifyOrigin == nil {
 		// sign session message body
-		if err := signServiceMessagePart(key, body, verifyHdr.SetBodySignature); err != nil {
+		if err := signServiceMessagePart(key, body, verifyHdr.SetBodySignature, buf); err != nil {
 			return errors.Wrap(err, "could not sign body")
 		}
 	}
 
 	// sign meta header
-	if err := signServiceMessagePart(key, meta, verifyHdr.SetMetaSignature); err != nil {
+	if err := signServiceMessagePart(key, meta, verifyHdr.SetMetaSignature, buf); err != nil {
 		return errors.Wrap(err, "could not sign meta header")
 	}
 
 	// sign verification header origin
-	if err := signServiceMessagePart(key, verifyOrigin, verifyHdr.SetOriginSignature); err != nil {
+	if err := signServiceMessagePart(key, verifyOrigin, verifyHdr.SetOriginSignature, buf); err != nil {
 		return errors.Wrap(err, "could not sign origin of verification header")
 	}
 
@@ -205,7 +215,7 @@ func SignServiceMessage(key *ecdsa.PrivateKey, msg interface{}) error {
 	return nil
 }
 
-func signServiceMessagePart(key *ecdsa.PrivateKey, part stableMarshaler, sigWrite func(*refs.Signature)) error {
+func signServiceMessagePart(key *ecdsa.PrivateKey, part stableMarshaler, sigWrite func(*refs.Signature), buf []byte) error {
 	sig := new(refs.Signature)
 
 	// sign part
@@ -213,6 +223,7 @@ func signServiceMessagePart(key *ecdsa.PrivateKey, part stableMarshaler, sigWrit
 		key,
 		&StableMarshalerWrapper{part},
 		keySignatureHandler(sig),
+		signature.WithBuffer(buf),
 	); err != nil {
 		return err
 	}
@@ -224,6 +235,10 @@ func signServiceMessagePart(key *ecdsa.PrivateKey, part stableMarshaler, sigWrit
 }
 
 func VerifyServiceMessage(msg interface{}) error {
+	return VerifyServiceMessageBuffer(msg, nil)
+}
+
+func VerifyServiceMessageBuffer(msg interface{}, buf []byte) error {
 	var (
 		meta   metaHeader
 		verify verificationHeader
@@ -252,22 +267,24 @@ func VerifyServiceMessage(msg interface{}) error {
 		panic(fmt.Sprintf("unsupported session message %T", v))
 	}
 
-	return verifyMatryoshkaLevel(serviceMessageBody(msg), meta, verify)
+	body := serviceMessageBody(msg)
+	buf = newBuffer(buf, body, meta, verify)
+	return verifyMatryoshkaLevel(body, meta, verify, buf)
 }
 
-func verifyMatryoshkaLevel(body stableMarshaler, meta metaHeader, verify verificationHeader) error {
-	if err := verifyServiceMessagePart(meta, verify.GetMetaSignature); err != nil {
+func verifyMatryoshkaLevel(body stableMarshaler, meta metaHeader, verify verificationHeader, buf []byte) error {
+	if err := verifyServiceMessagePart(meta, verify.GetMetaSignature, buf); err != nil {
 		return errors.Wrap(err, "could not verify meta header")
 	}
 
 	origin := verify.getOrigin()
 
-	if err := verifyServiceMessagePart(origin, verify.GetOriginSignature); err != nil {
+	if err := verifyServiceMessagePart(origin, verify.GetOriginSignature, buf); err != nil {
 		return errors.Wrap(err, "could not verify origin of verification header")
 	}
 
 	if origin == nil {
-		if err := verifyServiceMessagePart(body, verify.GetBodySignature); err != nil {
+		if err := verifyServiceMessagePart(body, verify.GetBodySignature, buf); err != nil {
 			return errors.Wrap(err, "could not verify body")
 		}
 
@@ -278,13 +295,14 @@ func verifyMatryoshkaLevel(body stableMarshaler, meta metaHeader, verify verific
 		return errors.New("body signature at the matryoshka upper level")
 	}
 
-	return verifyMatryoshkaLevel(body, meta.getOrigin(), origin)
+	return verifyMatryoshkaLevel(body, meta.getOrigin(), origin, buf)
 }
 
-func verifyServiceMessagePart(part stableMarshaler, sigRdr func() *refs.Signature) error {
+func verifyServiceMessagePart(part stableMarshaler, sigRdr func() *refs.Signature, buf []byte) error {
 	return signature.VerifyDataWithSource(
 		&StableMarshalerWrapper{part},
 		keySignatureSource(sigRdr()),
+		signature.WithBuffer(buf),
 	)
 }
 

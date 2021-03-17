@@ -262,7 +262,7 @@ func (c *clientImpl) PutObject(ctx context.Context, p *PutObjectParams, opts ...
 	initPart.SetHeader(obj.GetHeader())
 
 	// sign the request
-	if err := signature.SignServiceMessage(callOpts.key, req); err != nil {
+	if err := signature.SignServiceMessageBuffer(callOpts.key, req, callOpts.buffer); err != nil {
 		return nil, errors.Wrapf(err, "signing the request failed")
 	}
 
@@ -391,7 +391,6 @@ func (c *clientImpl) DeleteObject(ctx context.Context, p *DeleteObjectParams, op
 
 	// set meta header
 	meta := v2MetaHeaderFromOpts(callOpts)
-
 	if err := c.attachV2SessionToken(callOpts, meta, v2SessionReqInfo{
 		addr: p.addr.ToV2(),
 		verb: v2session.ObjectVerbDelete,
@@ -495,7 +494,6 @@ func (c *clientImpl) GetObject(ctx context.Context, p *GetObjectParams, opts ...
 
 	// set meta header
 	meta := v2MetaHeaderFromOpts(callOpts)
-
 	if err := c.attachV2SessionToken(callOpts, meta, v2SessionReqInfo{
 		addr: p.addr.ToV2(),
 		verb: v2session.ObjectVerbGet,
@@ -666,7 +664,6 @@ func (c *clientImpl) GetObjectHeader(ctx context.Context, p *ObjectHeaderParams,
 
 	// set meta header
 	meta := v2MetaHeaderFromOpts(callOpts)
-
 	if err := c.attachV2SessionToken(callOpts, meta, v2SessionReqInfo{
 		addr: p.addr.ToV2(),
 		verb: v2session.ObjectVerbHead,
@@ -737,13 +734,15 @@ func (c *clientImpl) GetObjectHeader(ctx context.Context, p *ObjectHeaderParams,
 		hdr = hdrWithSig.GetHeader()
 		idSig = hdrWithSig.GetSignature()
 
+		sm := p.addr.ObjectID().ToV2()
 		if err := signer.VerifyDataWithSource(
 			signature.StableMarshalerWrapper{
-				SM: p.addr.ObjectID().ToV2(),
+				SM: sm,
 			},
 			func() (key, sig []byte) {
 				return idSig.GetKey(), idSig.GetSign()
 			},
+			signer.WithBuffer(callOpts.getBuffer(sm.StableSize())),
 		); err != nil {
 			return nil, errors.Wrap(err, "incorrect object header signature")
 		}
@@ -846,7 +845,6 @@ func (c *clientImpl) ObjectPayloadRangeData(ctx context.Context, p *RangeDataPar
 
 	// set meta header
 	meta := v2MetaHeaderFromOpts(callOpts)
-
 	if err := c.attachV2SessionToken(callOpts, meta, v2SessionReqInfo{
 		addr: p.addr.ToV2(),
 		verb: v2session.ObjectVerbRange,
@@ -1008,7 +1006,6 @@ func (c *clientImpl) objectPayloadRangeHash(ctx context.Context, p *RangeChecksu
 
 	// set meta header
 	meta := v2MetaHeaderFromOpts(callOpts)
-
 	if err := c.attachV2SessionToken(callOpts, meta, v2SessionReqInfo{
 		addr: p.addr.ToV2(),
 		verb: v2session.ObjectVerbRangeHash,
@@ -1145,7 +1142,6 @@ func (c *clientImpl) SearchObject(ctx context.Context, p *SearchObjectParams, op
 
 	// set meta header
 	meta := v2MetaHeaderFromOpts(callOpts)
-
 	if err := c.attachV2SessionToken(callOpts, meta, v2SessionReqInfo{
 		addr: v2Addr,
 		verb: v2session.ObjectVerbSearch,
@@ -1229,14 +1225,17 @@ func (c *clientImpl) attachV2SessionToken(opts *callOptions, hdr *v2session.Requ
 	body.SetContext(opCtx)
 	body.SetLifetime(lt)
 
-	signWrapper := signature.StableMarshalerWrapper{SM: token.GetBody()}
+	sm := token.GetBody()
+	signWrapper := signature.StableMarshalerWrapper{
+		SM: sm,
+	}
 
 	err := signer.SignDataWithHandler(opts.key, signWrapper, func(key []byte, sig []byte) {
 		sessionTokenSignature := new(v2refs.Signature)
 		sessionTokenSignature.SetKey(key)
 		sessionTokenSignature.SetSign(sig)
 		token.SetSignature(sessionTokenSignature)
-	})
+	}, signer.WithBuffer(opts.getBuffer(sm.StableSize())))
 	if err != nil {
 		return err
 	}

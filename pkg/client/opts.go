@@ -25,6 +25,7 @@ type (
 		key      *ecdsa.PrivateKey
 		session  *token.SessionToken
 		bearer   *token.BearerToken
+		buffer   []byte
 	}
 
 	clientOptions struct {
@@ -83,6 +84,13 @@ func WithSession(token *token.SessionToken) CallOption {
 func WithBearer(token *token.BearerToken) CallOption {
 	return func(opts *callOptions) {
 		opts.bearer = token
+	}
+}
+
+// WithBuffer provides allocated buffer for intermediate use.
+func WithBuffer(buf []byte) CallOption {
+	return func(option *callOptions) {
+		option.buffer = buf
 	}
 }
 

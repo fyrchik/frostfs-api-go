@@ -42,6 +42,7 @@ type Container interface {
 
 type delContainerSignWrapper struct {
 	body *v2container.DeleteRequestBody
+	buf  []byte
 }
 
 // EACLWithSignature represents eACL table/signature pair.
@@ -97,14 +98,18 @@ func (c *clientImpl) PutContainer(ctx context.Context, cnr *container.Container,
 	reqBody.SetContainer(cnr.ToV2())
 
 	// sign container
-	signWrapper := v2signature.StableMarshalerWrapper{SM: reqBody.GetContainer()}
+	cnt := reqBody.GetContainer()
+	signWrapper := v2signature.StableMarshalerWrapper{
+		SM: cnt,
+	}
 
 	err := signature.SignDataWithHandler(callOptions.key, signWrapper, func(key []byte, sig []byte) {
 		containerSignature := new(refs.Signature)
 		containerSignature.SetKey(key)
 		containerSignature.SetSign(sig)
 		reqBody.SetSignature(containerSignature)
-	}, signature.SignWithRFC6979())
+	}, signature.SignWithRFC6979(),
+		signature.WithBuffer(callOptions.getBuffer(cnt.StableSize())))
 	if err != nil {
 		return nil, err
 	}
@@ -113,7 +118,7 @@ func (c *clientImpl) PutContainer(ctx context.Context, cnr *container.Container,
 	req.SetBody(reqBody)
 	req.SetMetaHeader(v2MetaHeaderFromOpts(callOptions))
 
-	err = v2signature.SignServiceMessage(callOptions.key, req)
+	err = v2signature.SignServiceMessageBuffer(callOptions.key, req, callOptions.buffer)
 	if err != nil {
 		return nil, err
 	}
@@ -123,7 +128,7 @@ func (c *clientImpl) PutContainer(ctx context.Context, cnr *container.Container,
 		return nil, err
 	}
 
-	err = v2signature.VerifyServiceMessage(resp)
+	err = v2signature.VerifyServiceMessageBuffer(resp, callOptions.buffer)
 	if err != nil {
 		return nil, errors.Wrap(err, "can't verify response message")
 	}
@@ -248,6 +253,7 @@ func (c *clientImpl) DeleteContainer(ctx context.Context, id *container.ID, opts
 	err := signature.SignDataWithHandler(callOptions.key,
 		delContainerSignWrapper{
 			body: reqBody,
+			buf:  callOptions.getBuffer(reqBody.StableSize()),
 		},
 		func(key []byte, sig []byte) {
 			containerSignature := new(refs.Signature)
@@ -327,14 +333,18 @@ func (c *clientImpl) SetEACL(ctx context.Context, eacl *eacl.Table, opts ...Call
 	reqBody.SetEACL(eacl.ToV2())
 	reqBody.GetEACL().SetVersion(pkg.SDKVersion().ToV2())
 
-	signWrapper := v2signature.StableMarshalerWrapper{SM: reqBody.GetEACL()}
+	sm := reqBody.GetEACL()
+	signWrapper := v2signature.StableMarshalerWrapper{
+		SM: sm,
+	}
 
 	err := signature.SignDataWithHandler(callOptions.key, signWrapper, func(key []byte, sig []byte) {
 		eaclSignature := new(refs.Signature)
 		eaclSignature.SetKey(key)
 		eaclSignature.SetSign(sig)
 		reqBody.SetSignature(eaclSignature)
-	}, signature.SignWithRFC6979())
+	}, signature.SignWithRFC6979(),
+		signature.WithBuffer(callOptions.getBuffer(sm.StableSize())))
 	if err != nil {
 		return err
 	}

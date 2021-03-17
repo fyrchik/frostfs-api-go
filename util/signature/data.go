@@ -28,16 +28,15 @@ func DataSignature(key *ecdsa.PrivateKey, src DataSource, opts ...SignOption) ([
 		return nil, crypto.ErrEmptyPrivateKey
 	}
 
-	data, err := dataForSignature(src)
-	if err != nil {
-		return nil, err
-	}
-	defer bytesPool.Put(data)
-
 	cfg := defaultCfg()
 
 	for i := range opts {
 		opts[i](cfg)
+	}
+
+	data, err := src.ReadSignedData(cfg.buffer)
+	if err != nil {
+		return nil, err
 	}
 
 	return cfg.signFunc(key, data)
@@ -55,16 +54,15 @@ func SignDataWithHandler(key *ecdsa.PrivateKey, src DataSource, handler KeySigna
 }
 
 func VerifyDataWithSource(dataSrc DataSource, sigSrc KeySignatureSource, opts ...SignOption) error {
-	data, err := dataForSignature(dataSrc)
-	if err != nil {
-		return err
-	}
-	defer bytesPool.Put(data)
-
 	cfg := defaultCfg()
 
 	for i := range opts {
 		opts[i](cfg)
+	}
+
+	data, err := dataSrc.ReadSignedData(cfg.buffer)
+	if err != nil {
+		return err
 	}
 
 	key, sig := sigSrc()

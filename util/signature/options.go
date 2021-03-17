@@ -9,6 +9,7 @@ import (
 type cfg struct {
 	signFunc   func(key *ecdsa.PrivateKey, msg []byte) ([]byte, error)
 	verifyFunc func(key *ecdsa.PublicKey, msg []byte, sig []byte) error
+	buffer     []byte
 }
 
 func defaultCfg() *cfg {
@@ -22,5 +23,12 @@ func SignWithRFC6979() SignOption {
 	return func(c *cfg) {
 		c.signFunc = crypto.SignRFC6979
 		c.verifyFunc = crypto.VerifyRFC6979
+	}
+}
+
+// WithBuffer provides allocated buffer to marshal struct to.
+func WithBuffer(b []byte) SignOption {
+	return func(c *cfg) {
+		c.buffer = b
 	}
 }
