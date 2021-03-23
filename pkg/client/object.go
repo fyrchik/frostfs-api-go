@@ -312,7 +312,7 @@ func (c *clientImpl) PutObject(ctx context.Context, p *PutObjectParams, opts ...
 	}
 
 	// verify response structure
-	if err := signature.VerifyServiceMessage(resp); err != nil {
+	if err := signature.VerifyServiceMessage(resp, callOpts.signOpts()...); err != nil {
 		return nil, errors.Wrap(err, "response verification failed")
 	}
 
@@ -416,7 +416,7 @@ func (c *clientImpl) DeleteObject(ctx context.Context, p *DeleteObjectParams, op
 	}
 
 	// verify response structure
-	if err := signature.VerifyServiceMessage(resp); err != nil {
+	if err := signature.VerifyServiceMessage(resp, callOpts.signOpts()...); err != nil {
 		return errors.Wrap(err, "response verification failed")
 	}
 
@@ -543,7 +543,7 @@ func (c *clientImpl) GetObject(ctx context.Context, p *GetObjectParams, opts ...
 		}
 
 		// verify response structure
-		if err := signature.VerifyServiceMessage(resp); err != nil {
+		if err := signature.VerifyServiceMessage(resp, callOpts.signOpts()...); err != nil {
 			return nil, errors.Wrap(err, "response verification failed")
 		}
 
@@ -693,7 +693,7 @@ func (c *clientImpl) GetObjectHeader(ctx context.Context, p *ObjectHeaderParams,
 	}
 
 	// verify response structure
-	if err := signature.VerifyServiceMessage(resp); err != nil {
+	if err := signature.VerifyServiceMessage(resp, callOpts.signOpts()...); err != nil {
 		return nil, errors.Wrap(err, "response verification failed")
 	}
 
@@ -891,7 +891,7 @@ func (c *clientImpl) ObjectPayloadRangeData(ctx context.Context, p *RangeDataPar
 		}
 
 		// verify response structure
-		if err := signature.VerifyServiceMessage(resp); err != nil {
+		if err := signature.VerifyServiceMessage(resp, callOpts.signOpts()...); err != nil {
 			return nil, errors.Wrapf(err, "could not verify %T", resp)
 		}
 
@@ -1040,7 +1040,7 @@ func (c *clientImpl) objectPayloadRangeHash(ctx context.Context, p *RangeChecksu
 	}
 
 	// verify response structure
-	if err := signature.VerifyServiceMessage(resp); err != nil {
+	if err := signature.VerifyServiceMessage(resp, callOpts.signOpts()...); err != nil {
 		return nil, errors.Wrap(err, "response verification failed")
 	}
 
@@ -1188,7 +1188,7 @@ func (c *clientImpl) SearchObject(ctx context.Context, p *SearchObjectParams, op
 		}
 
 		// verify response structure
-		if err := signature.VerifyServiceMessage(resp); err != nil {
+		if err := signature.VerifyServiceMessage(resp, callOpts.signOpts()...); err != nil {
 			return nil, errors.Wrapf(err, "could not verify %T", resp)
 		}
 

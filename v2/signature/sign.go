@@ -223,7 +223,7 @@ func signServiceMessagePart(key *ecdsa.PrivateKey, part stableMarshaler, sigWrit
 	return nil
 }
 
-func VerifyServiceMessage(msg interface{}) error {
+func VerifyServiceMessage(msg interface{}, sigOpts ...signature.SignOption) error {
 	var (
 		meta   metaHeader
 		verify verificationHeader
@@ -252,22 +252,23 @@ func VerifyServiceMessage(msg interface{}) error {
 		panic(fmt.Sprintf("unsupported session message %T", v))
 	}
 
-	return verifyMatryoshkaLevel(serviceMessageBody(msg), meta, verify)
+	return verifyMatryoshkaLevel(serviceMessageBody(msg), meta, verify, sigOpts...)
 }
 
-func verifyMatryoshkaLevel(body stableMarshaler, meta metaHeader, verify verificationHeader) error {
-	if err := verifyServiceMessagePart(meta, verify.GetMetaSignature); err != nil {
+func verifyMatryoshkaLevel(body stableMarshaler, meta metaHeader, verify verificationHeader,
+	sigOpts ...signature.SignOption) error {
+	if err := verifyServiceMessagePart(meta, verify.GetMetaSignature, sigOpts...); err != nil {
 		return errors.Wrap(err, "could not verify meta header")
 	}
 
 	origin := verify.getOrigin()
 
-	if err := verifyServiceMessagePart(origin, verify.GetOriginSignature); err != nil {
+	if err := verifyServiceMessagePart(origin, verify.GetOriginSignature, sigOpts...); err != nil {
 		return errors.Wrap(err, "could not verify origin of verification header")
 	}
 
 	if origin == nil {
-		if err := verifyServiceMessagePart(body, verify.GetBodySignature); err != nil {
+		if err := verifyServiceMessagePart(body, verify.GetBodySignature, sigOpts...); err != nil {
 			return errors.Wrap(err, "could not verify body")
 		}
 
@@ -278,13 +279,14 @@ func verifyMatryoshkaLevel(body stableMarshaler, meta metaHeader, verify verific
 		return errors.New("body signature at the matryoshka upper level")
 	}
 
-	return verifyMatryoshkaLevel(body, meta.getOrigin(), origin)
+	return verifyMatryoshkaLevel(body, meta.getOrigin(), origin, sigOpts...)
 }
 
-func verifyServiceMessagePart(part stableMarshaler, sigRdr func() *refs.Signature) error {
+func verifyServiceMessagePart(part stableMarshaler, sigRdr func() *refs.Signature, sigOpts ...signature.SignOption) error {
 	return signature.VerifyDataWithSource(
 		&StableMarshalerWrapper{part},
 		keySignatureSource(sigRdr()),
+		sigOpts...,
 	)
 }
 

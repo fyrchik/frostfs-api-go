@@ -70,7 +70,7 @@ func VerifyDataWithSource(dataSrc DataSource, sigSrc KeySignatureSource, opts ..
 	key, sig := sigSrc()
 
 	return cfg.verifyFunc(
-		crypto.UnmarshalPublicKey(key),
+		cfg.unmarshalPublic(key),
 		data,
 		sig,
 	)
