@@ -59,6 +59,7 @@ type PlacementPolicy struct {
 	backupFactor uint32
 	selectors    []*Selector
 	filters      []*Filter
+	subnet       uint32
 }
 
 // Attribute of storage node.
@@ -314,6 +315,19 @@ func (p *PlacementPolicy) GetContainerBackupFactor() uint32 {
 	}
 
 	return 0
+}
+
+func (p *PlacementPolicy) GetSubnet() uint32 {
+	if p != nil {
+		return p.subnet
+	}
+	return 0
+}
+
+func (p *PlacementPolicy) SetSubnet(subnet uint32) {
+	if p != nil {
+		p.subnet = subnet
+	}
 }
 
 func (p *PlacementPolicy) SetContainerBackupFactor(backupFactor uint32) {
