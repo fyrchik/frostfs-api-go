@@ -1,5 +1,7 @@
 #!/bin/bash
 
+go build -o protoc-gen-go-neofs ./protoc-gen-go-neofs
+
 if [ -z "$1" ]; then
     echo "usage: ./prepare.sh path/to/neofs-api"
     exit 1

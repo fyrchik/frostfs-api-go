@@ -47,6 +47,7 @@ protoc:
 		echo "⇒ Processing $$f "; \
 		protoc \
 			--proto_path=.:./vendor:/usr/local/include \
+			--go-neofs_out=. --go-neofs_opt=paths=source_relative \
 			--go_out=. --go_opt=paths=source_relative \
 			--go-grpc_opt=require_unimplemented_servers=false \
 			--go-grpc_out=. --go-grpc_opt=paths=source_relative $$f; \
