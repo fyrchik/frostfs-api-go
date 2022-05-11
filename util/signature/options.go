@@ -4,6 +4,7 @@ import (
 	"crypto/ecdsa"
 	"fmt"
 
+	lru "github.com/hashicorp/golang-lru"
 	"github.com/nspcc-dev/neofs-api-go/v2/refs"
 	crypto "github.com/nspcc-dev/neofs-crypto"
 )
@@ -18,12 +19,29 @@ func defaultCfg() *cfg {
 	return new(cfg)
 }
 
+// keycache is a simple lru cache for P256 keys that avoids Y calculation overhead
+// for known keys.
+var keycache *lru.Cache
+
+func init() {
+	// Less than 100K, probably enough for our purposes.
+	keycache, _ = lru.New(1024)
+}
+
 func verify(cfg *cfg, data []byte, sig *refs.Signature) error {
 	if !cfg.schemeFixed {
 		cfg.scheme = sig.GetScheme()
 	}
 
-	pub := crypto.UnmarshalPublicKey(sig.GetKey())
+	var pub *ecdsa.PublicKey
+	k := string(sig.GetKey())
+	cachedKey, ok := keycache.Get(k)
+	if ok {
+		pub = cachedKey.(*ecdsa.PublicKey)
+	} else {
+		pub = crypto.UnmarshalPublicKey(sig.GetKey())
+		keycache.Add(k, pub)
+	}
 
 	switch cfg.scheme {
 	case refs.ECDSA_SHA512:

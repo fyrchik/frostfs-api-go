@@ -3,6 +3,7 @@ module github.com/nspcc-dev/neofs-api-go/v2
 go 1.16
 
 require (
+	github.com/hashicorp/golang-lru v0.5.4
 	github.com/nspcc-dev/neofs-crypto v0.3.0
 	github.com/stretchr/testify v1.7.0
 	google.golang.org/grpc v1.41.0
