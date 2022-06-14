@@ -98,9 +98,9 @@ func createMessageWithSalt(msg, salt []byte) []byte {
 	saltedLen := len(salt)*2 + len(msg)
 	data := make([]byte, 4+getVarIntSize(saltedLen)+saltedLen+2)
 
-	n := copy(data, []byte{0x01, 0x00, 0x01, 0xf0}) // fixed prefix
-	n += putVarUint(data[n:], uint64(len(salt)+len(msg)))
-	n += hex.Encode(data[n:], salt[:]) // for some reason we encode salt in hex
+	n := copy(data, []byte{0x01, 0x00, 0x01, 0xf0})         // fixed prefix
+	n += putVarUint(data[n:], uint64(len(salt)*2+len(msg))) // salt is hex encoded, double its size
+	n += hex.Encode(data[n:], salt[:])                      // for some reason we encode salt in hex
 	n += copy(data[n:], msg)
 	copy(data[n:], []byte{0x00, 0x00})
 
