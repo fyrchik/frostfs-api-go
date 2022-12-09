@@ -1,7 +1,7 @@
 #!/bin/bash
 
 if [ -z "$1" ]; then
-    echo "usage: ./prepare.sh path/to/neofs-api"
+    echo "usage: ./prepare.sh path/to/frostfs-api"
     exit 1
 fi
 

@@ -39,7 +39,7 @@ imports:
 
 # Regenerate code for proto files
 protoc:
-	@GOPRIVATE=github.com/nspcc-dev go mod vendor
+	@GOPRIVATE=github.com/TrueCloudLab go mod vendor
 	# Install specific version for protobuf lib
 	@go list -f '{{.Path}}/...@{{.Version}}' -m  google.golang.org/protobuf | xargs go install -v
 	# Protoc generate
