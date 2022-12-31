@@ -199,7 +199,7 @@ func signServiceMessagePart(key *ecdsa.PrivateKey, part stableMarshaler, sigWrit
 	// sign part
 	if err := signature.SignDataWithHandler(
 		key,
-		&StableMarshalerWrapper{part},
+		StableMarshalerWrapper{part},
 		func(s *refs.Signature) {
 			sig = s
 		},
@@ -283,7 +283,7 @@ func verifyMatryoshkaLevel(body stableMarshaler, meta metaHeader, verify verific
 
 func verifyServiceMessagePart(part stableMarshaler, sigRdr func() *refs.Signature, buf []byte) error {
 	return signature.VerifyDataWithSource(
-		&StableMarshalerWrapper{part},
+		StableMarshalerWrapper{part},
 		sigRdr,
 		signature.WithBuffer(buf),
 	)
