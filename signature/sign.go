@@ -2,7 +2,6 @@ package signature
 
 import (
 	"crypto/ecdsa"
-	"errors"
 	"fmt"
 
 	"github.com/TrueCloudLab/frostfs-api-go/v2/accounting"
@@ -15,107 +14,28 @@ import (
 	"github.com/TrueCloudLab/frostfs-api-go/v2/util/signature"
 )
 
-type serviceRequest interface {
+type Request interface {
 	GetMetaHeader() *session.RequestMetaHeader
 	GetVerificationHeader() *session.RequestVerificationHeader
 	SetVerificationHeader(*session.RequestVerificationHeader)
 }
 
-type serviceResponse interface {
+type MessageBody interface {
+	StableMarshal([]byte) []byte
+	StableSize() int
+}
+
+type Response interface {
 	GetMetaHeader() *session.ResponseMetaHeader
 	GetVerificationHeader() *session.ResponseVerificationHeader
 	SetVerificationHeader(*session.ResponseVerificationHeader)
 }
 
-type stableMarshaler interface {
-	StableMarshal([]byte) []byte
-	StableSize() int
+type sigWrapper struct {
+	SM MessageBody
 }
 
-type StableMarshalerWrapper struct {
-	SM stableMarshaler
-}
-
-type metaHeader interface {
-	stableMarshaler
-	getOrigin() metaHeader
-}
-
-type verificationHeader interface {
-	stableMarshaler
-
-	GetBodySignature() *refs.Signature
-	SetBodySignature(*refs.Signature)
-	GetMetaSignature() *refs.Signature
-	SetMetaSignature(*refs.Signature)
-	GetOriginSignature() *refs.Signature
-	SetOriginSignature(*refs.Signature)
-
-	setOrigin(stableMarshaler)
-	getOrigin() verificationHeader
-}
-
-type requestMetaHeader struct {
-	*session.RequestMetaHeader
-}
-
-type responseMetaHeader struct {
-	*session.ResponseMetaHeader
-}
-
-type requestVerificationHeader struct {
-	*session.RequestVerificationHeader
-}
-
-type responseVerificationHeader struct {
-	*session.ResponseVerificationHeader
-}
-
-func (h *requestMetaHeader) getOrigin() metaHeader {
-	return &requestMetaHeader{
-		RequestMetaHeader: h.GetOrigin(),
-	}
-}
-
-func (h *responseMetaHeader) getOrigin() metaHeader {
-	return &responseMetaHeader{
-		ResponseMetaHeader: h.GetOrigin(),
-	}
-}
-
-func (h *requestVerificationHeader) getOrigin() verificationHeader {
-	if origin := h.GetOrigin(); origin != nil {
-		return &requestVerificationHeader{
-			RequestVerificationHeader: origin,
-		}
-	}
-
-	return nil
-}
-
-func (h *requestVerificationHeader) setOrigin(m stableMarshaler) {
-	if m != nil {
-		h.SetOrigin(m.(*session.RequestVerificationHeader))
-	}
-}
-
-func (r *responseVerificationHeader) getOrigin() verificationHeader {
-	if origin := r.GetOrigin(); origin != nil {
-		return &responseVerificationHeader{
-			ResponseVerificationHeader: origin,
-		}
-	}
-
-	return nil
-}
-
-func (r *responseVerificationHeader) setOrigin(m stableMarshaler) {
-	if m != nil {
-		r.SetOrigin(m.(*session.ResponseVerificationHeader))
-	}
-}
-
-func (s StableMarshalerWrapper) ReadSignedData(buf []byte) ([]byte, error) {
+func (s sigWrapper) ReadSignedData(buf []byte) ([]byte, error) {
 	if s.SM != nil {
 		return s.SM.StableMarshal(buf), nil
 	}
@@ -123,7 +43,7 @@ func (s StableMarshalerWrapper) ReadSignedData(buf []byte) ([]byte, error) {
 	return nil, nil
 }
 
-func (s StableMarshalerWrapper) SignedDataSize() int {
+func (s sigWrapper) SignedDataSize() int {
 	if s.SM != nil {
 		return s.SM.StableSize()
 	}
@@ -131,51 +51,18 @@ func (s StableMarshalerWrapper) SignedDataSize() int {
 	return 0
 }
 
-func SignServiceMessage(key *ecdsa.PrivateKey, msg interface{}) error {
-	var (
-		body, meta, verifyOrigin stableMarshaler
-		verifyHdr                verificationHeader
-		verifyHdrSetter          func(verificationHeader)
-	)
+func SignRequest(key *ecdsa.PrivateKey, header Request, body MessageBody) error {
+	verifyHdr := new(session.RequestVerificationHeader)
 
-	switch v := msg.(type) {
-	case nil:
-		return nil
-	case serviceRequest:
-		body = serviceMessageBody(v)
-		meta = v.GetMetaHeader()
-		verifyHdr = &requestVerificationHeader{new(session.RequestVerificationHeader)}
-		verifyHdrSetter = func(h verificationHeader) {
-			v.SetVerificationHeader(h.(*requestVerificationHeader).RequestVerificationHeader)
-		}
-
-		if h := v.GetVerificationHeader(); h != nil {
-			verifyOrigin = h
-		}
-	case serviceResponse:
-		body = serviceMessageBody(v)
-		meta = v.GetMetaHeader()
-		verifyHdr = &responseVerificationHeader{new(session.ResponseVerificationHeader)}
-		verifyHdrSetter = func(h verificationHeader) {
-			v.SetVerificationHeader(h.(*responseVerificationHeader).ResponseVerificationHeader)
-		}
-
-		if h := v.GetVerificationHeader(); h != nil {
-			verifyOrigin = h
-		}
-	default:
-		panic(fmt.Sprintf("unsupported session message %T", v))
-	}
-
+	verifyOrigin := header.GetVerificationHeader()
 	if verifyOrigin == nil {
-		// sign session message body
 		if err := signServiceMessagePart(key, body, verifyHdr.SetBodySignature); err != nil {
 			return fmt.Errorf("could not sign body: %w", err)
 		}
 	}
 
 	// sign meta header
-	if err := signServiceMessagePart(key, meta, verifyHdr.SetMetaSignature); err != nil {
+	if err := signServiceMessagePart(key, header.GetMetaHeader(), verifyHdr.SetMetaSignature); err != nil {
 		return fmt.Errorf("could not sign meta header: %w", err)
 	}
 
@@ -185,21 +72,59 @@ func SignServiceMessage(key *ecdsa.PrivateKey, msg interface{}) error {
 	}
 
 	// wrap origin verification header
-	verifyHdr.setOrigin(verifyOrigin)
-
-	// update matryoshka verification header
-	verifyHdrSetter(verifyHdr)
-
+	verifyHdr.SetOrigin(verifyOrigin)
+	header.SetVerificationHeader(verifyHdr)
 	return nil
 }
 
-func signServiceMessagePart(key *ecdsa.PrivateKey, part stableMarshaler, sigWrite func(*refs.Signature)) error {
+func SignResponse(key *ecdsa.PrivateKey, header Response, body MessageBody) error {
+	verifyHdr := new(session.ResponseVerificationHeader)
+
+	verifyOrigin := header.GetVerificationHeader()
+	if verifyOrigin == nil {
+		if err := signServiceMessagePart(key, body, verifyHdr.SetBodySignature); err != nil {
+			return fmt.Errorf("could not sign body: %w", err)
+		}
+	}
+
+	// sign meta header
+	if err := signServiceMessagePart(key, header.GetMetaHeader(), verifyHdr.SetMetaSignature); err != nil {
+		return fmt.Errorf("could not sign meta header: %w", err)
+	}
+
+	// sign verification header origin
+	if err := signServiceMessagePart(key, verifyOrigin, verifyHdr.SetOriginSignature); err != nil {
+		return fmt.Errorf("could not sign origin of verification header: %w", err)
+	}
+
+	// wrap origin verification header
+	verifyHdr.SetOrigin(verifyOrigin)
+	header.SetVerificationHeader(verifyHdr)
+	return nil
+}
+
+// SignServiceMessage signs FrostFS API service request or response with a private key.
+// Deprecated: use SignRequest or SignResponse instead.
+func SignServiceMessage(key *ecdsa.PrivateKey, msg interface{}) error {
+	switch v := msg.(type) {
+	case nil:
+		return nil
+	case Request:
+		return SignRequest(key, v, serviceMessageBody(v))
+	case Response:
+		return SignResponse(key, v, serviceMessageBody(v))
+	default:
+		panic(fmt.Sprintf("unsupported session message %T", v))
+	}
+}
+
+func signServiceMessagePart(key *ecdsa.PrivateKey, part MessageBody, sigWrite func(*refs.Signature)) error {
 	var sig *refs.Signature
 
 	// sign part
 	if err := signature.SignDataWithHandler(
 		key,
-		StableMarshalerWrapper{part},
+		sigWrapper{part},
 		func(s *refs.Signature) {
 			sig = s
 		},
@@ -213,83 +138,7 @@ func signServiceMessagePart(key *ecdsa.PrivateKey, part stableMarshaler, sigWrit
 	return nil
 }
 
-func VerifyServiceMessage(msg interface{}) error {
-	var (
-		meta   metaHeader
-		verify verificationHeader
-	)
-
-	switch v := msg.(type) {
-	case nil:
-		return nil
-	case serviceRequest:
-		meta = &requestMetaHeader{
-			RequestMetaHeader: v.GetMetaHeader(),
-		}
-
-		verify = &requestVerificationHeader{
-			RequestVerificationHeader: v.GetVerificationHeader(),
-		}
-	case serviceResponse:
-		meta = &responseMetaHeader{
-			ResponseMetaHeader: v.GetMetaHeader(),
-		}
-
-		verify = &responseVerificationHeader{
-			ResponseVerificationHeader: v.GetVerificationHeader(),
-		}
-	default:
-		panic(fmt.Sprintf("unsupported session message %T", v))
-	}
-
-	body := serviceMessageBody(msg)
-	size := body.StableSize()
-	if sz := meta.StableSize(); sz > size {
-		size = sz
-	}
-	if sz := verify.StableSize(); sz > size {
-		size = sz
-	}
-
-	buf := make([]byte, 0, size)
-	return verifyMatryoshkaLevel(body, meta, verify, buf)
-}
-
-func verifyMatryoshkaLevel(body stableMarshaler, meta metaHeader, verify verificationHeader, buf []byte) error {
-	if err := verifyServiceMessagePart(meta, verify.GetMetaSignature, buf); err != nil {
-		return fmt.Errorf("could not verify meta header: %w", err)
-	}
-
-	origin := verify.getOrigin()
-
-	if err := verifyServiceMessagePart(origin, verify.GetOriginSignature, buf); err != nil {
-		return fmt.Errorf("could not verify origin of verification header: %w", err)
-	}
-
-	if origin == nil {
-		if err := verifyServiceMessagePart(body, verify.GetBodySignature, buf); err != nil {
-			return fmt.Errorf("could not verify body: %w", err)
-		}
-
-		return nil
-	}
-
-	if verify.GetBodySignature() != nil {
-		return errors.New("body signature at the matryoshka upper level")
-	}
-
-	return verifyMatryoshkaLevel(body, meta.getOrigin(), origin, buf)
-}
-
-func verifyServiceMessagePart(part stableMarshaler, sigRdr func() *refs.Signature, buf []byte) error {
-	return signature.VerifyDataWithSource(
-		StableMarshalerWrapper{part},
-		sigRdr,
-		signature.WithBuffer(buf),
-	)
-}
-
-func serviceMessageBody(req interface{}) stableMarshaler {
+func serviceMessageBody(req interface{}) MessageBody {
 	switch v := req.(type) {
 	default:
 		panic(fmt.Sprintf("unsupported session message %T", req))
