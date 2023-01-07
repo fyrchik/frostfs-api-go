@@ -1,5 +1,5 @@
 <p align="center">
-<img src="./.github/logo.svg" width="500px" alt="NeoFS">
+<img src="./.github/logo.svg" width="500px" alt="FrostFS">
 </p>
 <p align="center">
   Low-level Golang API for <a href="https://frostfs.info">FrostFS</a>
