@@ -8,7 +8,6 @@ import (
 	"github.com/TrueCloudLab/frostfs-api-go/v2/container"
 	"github.com/TrueCloudLab/frostfs-api-go/v2/netmap"
 	"github.com/TrueCloudLab/frostfs-api-go/v2/object"
-	"github.com/TrueCloudLab/frostfs-api-go/v2/refs"
 	"github.com/TrueCloudLab/frostfs-api-go/v2/reputation"
 	"github.com/TrueCloudLab/frostfs-api-go/v2/session"
 	"github.com/TrueCloudLab/frostfs-api-go/v2/util/signature"
@@ -31,45 +30,29 @@ type Response interface {
 	SetVerificationHeader(*session.ResponseVerificationHeader)
 }
 
-type sigWrapper struct {
-	SM MessageBody
-}
-
-func (s sigWrapper) ReadSignedData(buf []byte) ([]byte, error) {
-	if s.SM != nil {
-		return s.SM.StableMarshal(buf), nil
-	}
-
-	return nil, nil
-}
-
-func (s sigWrapper) SignedDataSize() int {
-	if s.SM != nil {
-		return s.SM.StableSize()
-	}
-
-	return 0
-}
-
-func SignRequest(key *ecdsa.PrivateKey, header Request, body MessageBody) error {
+func SignRequest(s *signature.Signer, header Request, body MessageBody) error {
 	verifyHdr := new(session.RequestVerificationHeader)
 
 	verifyOrigin := header.GetVerificationHeader()
 	if verifyOrigin == nil {
-		if err := signServiceMessagePart(key, body, verifyHdr.SetBodySignature); err != nil {
+		sig, err := s.SignStable(body)
+		if err != nil {
 			return fmt.Errorf("could not sign body: %w", err)
 		}
+		verifyHdr.SetBodySignature(sig)
 	}
 
-	// sign meta header
-	if err := signServiceMessagePart(key, header.GetMetaHeader(), verifyHdr.SetMetaSignature); err != nil {
+	sig, err := s.SignStable(header.GetMetaHeader())
+	if err != nil {
 		return fmt.Errorf("could not sign meta header: %w", err)
 	}
+	verifyHdr.SetMetaSignature(sig)
 
-	// sign verification header origin
-	if err := signServiceMessagePart(key, verifyOrigin, verifyHdr.SetOriginSignature); err != nil {
+	sig, err = s.SignStable(verifyOrigin)
+	if err != nil {
 		return fmt.Errorf("could not sign origin of verification header: %w", err)
 	}
+	verifyHdr.SetOriginSignature(sig)
 
 	// wrap origin verification header
 	verifyHdr.SetOrigin(verifyOrigin)
@@ -78,24 +61,33 @@ func SignRequest(key *ecdsa.PrivateKey, header Request, body MessageBody) error 
 }
 
 func SignResponse(key *ecdsa.PrivateKey, header Response, body MessageBody) error {
+	s, err := signature.NewSigner(key, nil)
+	if err != nil {
+		return err
+	}
+
 	verifyHdr := new(session.ResponseVerificationHeader)
 
 	verifyOrigin := header.GetVerificationHeader()
 	if verifyOrigin == nil {
-		if err := signServiceMessagePart(key, body, verifyHdr.SetBodySignature); err != nil {
+		sig, err := s.SignStable(body)
+		if err != nil {
 			return fmt.Errorf("could not sign body: %w", err)
 		}
+		verifyHdr.SetBodySignature(sig)
 	}
 
-	// sign meta header
-	if err := signServiceMessagePart(key, header.GetMetaHeader(), verifyHdr.SetMetaSignature); err != nil {
+	sig, err := s.SignStable(header.GetMetaHeader())
+	if err != nil {
 		return fmt.Errorf("could not sign meta header: %w", err)
 	}
+	verifyHdr.SetMetaSignature(sig)
 
-	// sign verification header origin
-	if err := signServiceMessagePart(key, verifyOrigin, verifyHdr.SetOriginSignature); err != nil {
+	sig, err = s.SignStable(verifyOrigin)
+	if err != nil {
 		return fmt.Errorf("could not sign origin of verification header: %w", err)
 	}
+	verifyHdr.SetOriginSignature(sig)
 
 	// wrap origin verification header
 	verifyHdr.SetOrigin(verifyOrigin)
@@ -116,26 +108,6 @@ func SignServiceMessage(key *ecdsa.PrivateKey, msg interface{}) error {
 	default:
 		panic(fmt.Sprintf("unsupported session message %T", v))
 	}
-}
-
-func signServiceMessagePart(key *ecdsa.PrivateKey, part MessageBody, sigWrite func(*refs.Signature)) error {
-	var sig *refs.Signature
-
-	// sign part
-	if err := signature.SignDataWithHandler(
-		key,
-		sigWrapper{part},
-		func(s *refs.Signature) {
-			sig = s
-		},
-	); err != nil {
-		return err
-	}
-
-	// write part signature
-	sigWrite(sig)
-
-	return nil
 }
 
 func serviceMessageBody(req interface{}) MessageBody {

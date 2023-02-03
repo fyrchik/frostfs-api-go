@@ -54,6 +54,7 @@ func (c *Client) openGRPCConn(ctx context.Context) error {
 	c.conn, err = grpcstd.DialContext(dialCtx, c.addr,
 		grpcstd.WithTransportCredentials(creds),
 		grpcstd.WithBlock(),
+		grpcstd.WithKeepaliveParams()
 	)
 
 	cancel()

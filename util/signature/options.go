@@ -10,19 +10,21 @@ import (
 	crypto "github.com/TrueCloudLab/frostfs-crypto"
 )
 
+type SignOption func(*cfg)
+
 type cfg struct {
 	schemeFixed bool
 	scheme      refs.SignatureScheme
-	buffer      []byte
 }
 
-func defaultCfg() *cfg {
-	return new(cfg)
-}
+func verify(data []byte, sig *refs.Signature, opts ...SignOption) error {
+	var c cfg
+	for i := range opts {
+		opts[i](&c)
+	}
 
-func verify(cfg *cfg, data []byte, sig *refs.Signature) error {
-	if !cfg.schemeFixed {
-		cfg.scheme = sig.GetScheme()
+	if !c.schemeFixed {
+		c.scheme = sig.GetScheme()
 	}
 
 	pub := crypto.UnmarshalPublicKey(sig.GetKey())
@@ -30,7 +32,7 @@ func verify(cfg *cfg, data []byte, sig *refs.Signature) error {
 		return crypto.ErrEmptyPublicKey
 	}
 
-	switch cfg.scheme {
+	switch c.scheme {
 	case refs.ECDSA_SHA512:
 		return crypto.Verify(pub, data, sig.GetSign())
 	case refs.ECDSA_RFC6979_SHA256:
@@ -43,7 +45,7 @@ func verify(cfg *cfg, data []byte, sig *refs.Signature) error {
 		}
 		return nil
 	default:
-		return fmt.Errorf("unsupported signature scheme %s", cfg.scheme)
+		return fmt.Errorf("unsupported signature scheme %s", c.scheme)
 	}
 }
 
@@ -70,10 +72,8 @@ func SignWithRFC6979() SignOption {
 }
 
 // WithBuffer allows providing pre-allocated buffer for signature verification.
-func WithBuffer(buf []byte) SignOption {
-	return func(c *cfg) {
-		c.buffer = buf
-	}
+func WithBuffer(_ []byte) SignOption {
+	return func(_ *cfg) {}
 }
 
 func SignWithWalletConnect() SignOption {
